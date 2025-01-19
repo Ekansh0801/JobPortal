@@ -1,6 +1,8 @@
 import { User } from "../models/user.model.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import getDataUri from "../utils/dataUri.js";
+import cloudinary from "../utils/cloudinary.js";
 
 export const register = async(req,res) => {
     try{
@@ -11,13 +13,19 @@ export const register = async(req,res) => {
                 message:'All fields required!!!',
             })
         }
-
+        const file = req.file;
         const user = await User.findOne({email});
         if(user){
             return res.status(400).json({
                 success:false,
                 message:'User already exists with this email',
             })
+        }
+        const profile = {};
+        if(file){
+            const fileUri = getDataUri(file);
+            const cloudResponse = await cloudinary.uploader.upload(fileUri.content);
+            profile.profilePhoto = cloudResponse.secure_url
         }
 
         const hashedPassword = await bcrypt.hash(password,10);
@@ -28,7 +36,7 @@ export const register = async(req,res) => {
             phoneNumber,
             password:hashedPassword,
             role,
-
+            profile,
         });
 
         return res.status(200).json({
@@ -118,6 +126,10 @@ export const logout = async(req,res) => {
 export const updateProfile = async(req,res) => {
     try{
         const {fullName,email,phoneNumber,bio,skills} = req.body;
+        const file = req.file;
+        const fileUri = getDataUri(file);
+        const cloudResponse = await cloudinary.uploader.upload(fileUri.content)
+        
 
         const userId = req.id; // to be reviewed later
         
@@ -132,10 +144,16 @@ export const updateProfile = async(req,res) => {
         if(fullName) user.fullName = fullName;
         if(email) user.email = email;
         if(phoneNumber) user.phoneNumber = phoneNumber;
-        if(bio) user.bio = bio;
+        if(bio) user.profile.bio = bio;
+        let skillsArray
         if(skills){
-            const skillsArray = skills.split(",");
-            user.skills = skillsArray;
+            skillsArray = skills.split(",");
+        }
+        if(skills) user.profile.skills = skillsArray
+        
+        if(cloudResponse){
+            user.profile.resume = cloudResponse.secure_url;
+            user.profile.resumeOriginalName = file.originalname;
         }
 
         await user.save();
@@ -146,11 +164,13 @@ export const updateProfile = async(req,res) => {
             email:user.email,
             phoneNumber:user.phoneNumber,
             role:user.role,
-            profile:user.profile
+            profile:user.profile,
+
         };
 
         return res.status(200).json({
             message:"Profile Updated Successfully!!",
+            user,
             success:true,
         })
 
